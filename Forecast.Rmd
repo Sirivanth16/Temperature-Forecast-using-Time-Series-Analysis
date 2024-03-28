@@ -1,0 +1,296 @@
+```{r}
+library(forecast)
+library(tseries)
+library(ggplot2)
+library(fpp)
+library(tidyverse)
+```
+
+
+```{r}
+weather_data <- read.csv("final_data_1970_2023.csv")
+weather_data
+```
+
+
+```{r}
+df_ts <- ts(weather_data, start = c(1970, 1), frequency = 365.25)
+plot(df_ts[,'temp'])
+```
+
+```{r}
+checkresiduals(df_ts[,'temp'])
+```
+
+
+```{r}
+df_ts_boxcox <- BoxCox(df_ts[,'temp'], lambda = BoxCox.lambda(df_ts[,'temp']))
+checkresiduals(df_ts_boxcox)
+```
+
+
+```{r}
+df_ts_boxcox_d1 <- diff(df_ts_boxcox, differences = 1)
+checkresiduals(df_ts_boxcox_d1)
+```
+
+
+```{r}
+Acf(df_ts_boxcox)
+```
+
+
+```{r}
+Pacf(df_ts_boxcox)
+```
+
+
+```{r}
+kpss.test(df_ts_boxcox_d1, null = "Trend")
+```
+
+
+```{r}
+df_mon <- weather_data %>%
+  mutate(weather_data, yearmon = str_sub(weather_data[,'datetime'], start = 1, end = 7) ) %>%
+  group_by(yearmon)　%>%
+  mutate(avgMTemp = mean(temp)) %>% 
+  distinct(yearmon,.keep_all = TRUE) %>%
+  select(c(yearmon, avgMTemp))
+
+df_mon_train <- filter(df_mon, yearmon < "2021-06")
+df_mon_test <- filter(df_mon, yearmon >= "2021-06")
+
+# Split the train and test datasets
+
+df_mon_train.ts <-ts(df_mon_train, start = c(1970, 1), end = c(2021,5), frequency = 12)
+plot(df_mon_train.ts[,'avgMTemp'])
+```
+
+
+```{r}
+checkresiduals(df_mon_train.ts[,'avgMTemp'])
+```
+
+```{r}
+df_mon_test.ts <-ts(df_mon_test, start = c(2021,6), end = c(2023,8), frequency = 12)
+plot(df_mon_test.ts[,'avgMTemp'])
+```
+
+
+```{r}
+checkresiduals(df_mon_test.ts[,'avgMTemp'])
+```
+
+
+```{r}
+df_mon_ts = ts(df_mon, start = c(1970, 1), end = c(2023,7), frequency = 12)
+df_mon_ts_boxcox <- BoxCox(df_mon_ts[,'avgMTemp'], lambda = BoxCox.lambda(df_mon_ts[,'avgMTemp']))
+checkresiduals(df_mon_ts_boxcox)
+```
+
+
+```{r}
+df_mon_ts_boxcox_d1 <- diff(df_mon_ts_boxcox, differences = 1)
+checkresiduals(df_mon_ts_boxcox_d1)
+```
+
+
+```{r}
+dec_add <- decompose(df_mon_ts_boxcox, type = 'additive')
+plot(dec_add)
+```
+
+
+```{r}
+dec_mul <- decompose(df_mon_ts_boxcox, type = 'multiplicative')
+plot(dec_mul)
+```
+
+
+```{r}
+fit.snaive <- snaive(df_mon_train.ts[,"avgMTemp"],
+                 lambda =BoxCox.lambda(df_mon_train.ts[,"avgMTemp"]),
+                 h = 24, damped = TRUE, level = c(80,95))
+  
+summary(fit.snaive)
+```
+
+
+```{r}
+# Create a plot with forecasted and actual values
+plot <- autoplot(fit.snaive) + autolayer(df_mon_test.ts[,'avgMTemp'])
+
+# Specify the x-axis limits for the last 4 years
+last_year <- 2019
+plot <- plot + scale_x_continuous(
+  limits = c(last_year, 2024),
+  breaks = seq(last_year, 2024, by = 1)
+)
+
+# Display the plot
+print(plot)
+```
+
+
+```{r}
+fit_ses <- ses(df_mon_train.ts[,"avgMTemp"], h = 24, alpha = 0.2, 
+               lambda =BoxCox.lambda(df_mon_train.ts[,"avgMTemp"]))
+# plot(fit_ses, ylab="Temperature(°C)",)
+# Create a plot with forecasted and actual values
+plot <- autoplot(fit_ses) + autolayer(df_mon_test.ts[,'avgMTemp'])
+
+# Specify the x-axis limits for the last 4 years
+last_year <- 2019
+plot <- plot + scale_x_continuous(
+  limits = c(last_year, 2024),
+  breaks = seq(last_year, 2024, by = 1)
+)
+
+# Display the plot
+print(plot)
+```
+
+
+```{r}
+accuracy(fit_ses, df_mon_test.ts[,"avgMTemp"])
+```
+
+
+```{r}
+fit_hw_add <- hw(df_mon_train.ts[,"avgMTemp"],　seasonal="additive", 
+                 lambda =BoxCox.lambda(df_mon_train.ts[,"avgMTemp"]),
+                 h = 24, damped = TRUE, level = c(80,95))
+# plot(fit_hw_add, ylab="Temperature(°C)")
+
+# Create a plot with forecasted and actual values
+plot <- autoplot(fit_hw_add) + autolayer(df_mon_test.ts[,'avgMTemp'])
+
+# Specify the x-axis limits for the last 4 years
+last_year <- 2019
+plot <- plot + scale_x_continuous(
+  limits = c(last_year, 2024),
+  breaks = seq(last_year, 2024, by = 1)
+)
+
+# Display the plot
+print(plot)
+```
+
+
+```{r}
+accuracy(fit_hw_add, df_mon_test.ts[,"avgMTemp"])
+```
+
+
+```{r}
+summary(fit_hw_add)
+```
+
+
+```{r}
+ls1 <- df_mon_test.ts[,"avgMTemp"]
+ls2 <- fit_hw_add$mean
+mse = mean((ls1-ls2)^2)
+round(mse,2)
+```
+
+
+```{r}
+rmse = sqrt(mse)
+round(rmse,2)
+```
+
+
+```{r}
+fit.arima <- auto.arima(df_mon_train.ts[,"avgMTemp"],
+                 lambda = "auto",
+                 seasonal = TRUE,
+                 stepwise = TRUE,
+                 approximation = FALSE)
+
+summary(fit.arima)
+```
+
+
+```{r}
+# Load necessary libraries
+library(forecast)
+library(ggplot2)
+
+forecast_arima <- forecast(fit.arima, h = 24)  # Forecast for the next 12 time points
+
+x_limit <- range(2019,2023)
+plot(forecast_arima, main = "ARIMA Forecast", xlim = x_limit)
+```
+
+
+```{r}
+summary(fit.arima)
+```
+
+
+```{r}
+summary(forecast_arima)
+```
+
+
+```{r}
+accuracy(forecast_arima, df_mon_test.ts[,"avgMTemp"])
+```
+
+
+```{r}
+# Load necessary libraries
+library(forecast)
+library(ggplot2)
+
+# Fit a SARIMA model
+fit.sarima <- auto.arima(df_mon_train.ts[,"avgMTemp"], seasonal = TRUE)
+forecast_sarima <- forecast(fit.sarima, h = 24)  # Forecast for the next 12 time points
+```
+
+
+```{r}
+x_limit <- range(2019,2023)
+plot(forecast_sarima, main = "SARIMA Forecast", xlim = x_limit)
+```
+
+
+```{r}
+summary(fit.sarima)
+```
+
+
+```{r}
+summary(forecast_sarima)
+```
+
+
+```{r}
+accuracy(forecast_sarima, df_mon_test.ts[,"avgMTemp"])
+```
+
+
+```{r}
+# Fit ETS model
+ets_model <- stlf(df_mon_train.ts[,"avgMTemp"])
+
+# Forecast using the ETS model
+forecast_ets <- forecast(ets_model, h = 24)  # Forecast for the next 12 time points
+
+x_limit <- range(2019,2023)
+plot(forecast_ets, main = "Exp Smoothing State Space Model Temperature Forecast", xlim = x_limit)
+```
+
+```{r}
+accuracy(forecast_ets, df_mon_test.ts[,"avgMTemp"])
+```
+```{r}
+install.packages("prophet")
+```
+
+```{r}
+install.packages("rstan")
+
+```
